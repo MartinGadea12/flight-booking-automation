@@ -24,8 +24,8 @@ custom:
 
 functions:
   playwrightTest:
-    image: ${env:AWS_ECR_REPOSITORY_URL, ''}:${env:IMAGE_TAG, ''}
-    name: ${env:AWS_LAMBDA_FUNCTION_NAME, ''}
+    image: ${env:AWS_ECR_REPOSITORY_URL, ''}:${env:IMAGE_TAG, 'latest'}
+    name: ${env:AWS_LAMBDA_FUNCTION_NAME, 'playwrightTest'}
     description: Playwright test for Aegean Air flight booking component
     events:
       - schedule:
@@ -60,4 +60,4 @@ resources:
       Value:
         Ref: PlaywrightTestLambdaFunction
       Export:
-        Name: ${self:service}-${self:provider.stage}-${env:AWS_LAMBDA_FUNCTION_NAME, ''}
+        Name: ${self:service}-${self:provider.stage}-${env:AWS_LAMBDA_FUNCTION_NAME, 'playwrightTest'}
