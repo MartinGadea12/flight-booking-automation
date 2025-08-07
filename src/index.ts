@@ -16,6 +16,8 @@ import {
   TIMEOUT_SELECTOR,
   PARAMETERS,
 } from "./utils/constants";
+import { TestResult, TestStep, FormValidationResult } from "./utils/types";
+import { validateAllFormElements, allValidationsPassed, getFailedValidations, calculateTotalValidationTime } from "./utils/form-validator";
 
 /**
  * AWS Lambda handler function for automated web screenshot capture and S3 storage.
@@ -121,19 +123,39 @@ export const handler = async (
   event: APIGatewayProxyEvent,
   context?: Context
 ): Promise<APIGatewayProxyResult> => {
+  const startTime = performance.now();
   let browser: any = null;
   let screenshotUrl: string | null = null;
   let statusCode = 200;
   let message = "Success";
+  
+  // Initialize test results
+  const testSteps: TestStep[] = [];
+  const errors: string[] = [];
+  let validations: FormValidationResult[] = [];
 
   try {
-    // Ensure necessary directories exist
+    // Step 1: Ensure necessary directories exist
+    const step1Start = performance.now();
     await ensureDirectoriesExist();
+    testSteps.push({
+      step: "Ensure directories exist",
+      success: true,
+      executionTime: performance.now() - step1Start,
+      details: "Directories created successfully"
+    });
 
-    // Launch browser with configuration suitable for Lambda
+    // Step 2: Launch browser
+    const step2Start = performance.now();
     browser = await playwright.launch({
       args: BROWSER_ARGS,
       executablePath: await chromium.executablePath(),
+    });
+    testSteps.push({
+      step: "Launch browser",
+      success: true,
+      executionTime: performance.now() - step2Start,
+      details: "Browser launched successfully"
     });
 
     const context = await browser.newContext({
@@ -142,56 +164,85 @@ export const handler = async (
     });
 
     const page = await context.newPage();
-
-    // Configure timeouts longer for Lambda environment
     page.setDefaultNavigationTimeout(TIMEOUT_NAVIGATION);
 
-    // Navigate to Aegean Air page
+    // Step 3: Navigate to Aegean Air page
+    const step3Start = performance.now();
     await page.goto(PARAMETERS.url, {
       waitUntil: "domcontentloaded",
       timeout: TIMEOUT_NAVIGATION,
     });
+    testSteps.push({
+      step: "Navigate to Aegean Air page",
+      success: true,
+      executionTime: performance.now() - step3Start,
+      details: `Navigated to ${PARAMETERS.url}`
+    });
 
-    // Wait for the specific selector to be visible
+    // Step 4: Wait for booking component
+    const step4Start = performance.now();
     await page.waitForSelector(PARAMETERS.selector, {
       state: "visible",
       timeout: TIMEOUT_SELECTOR,
     });
+    testSteps.push({
+      step: "Wait for booking component",
+      success: true,
+      executionTime: performance.now() - step4Start,
+      details: `Component ${PARAMETERS.selector} found`
+    });
 
-    // Take screenshot of the specific element
+    // Step 5: Validate form elements
+    const step5Start = performance.now();
+    validations = await validateAllFormElements(page);
+    const validationTime = performance.now() - step5Start;
+    
+    testSteps.push({
+      step: "Validate form elements",
+      success: allValidationsPassed(validations),
+      executionTime: validationTime,
+      details: {
+        totalElements: validations.length,
+        passedElements: validations.filter(v => v.found).length,
+        failedElements: getFailedValidations(validations).length
+      }
+    });
+
+    // Step 6: Capture screenshot
+    const step6Start = performance.now();
     const element = await page.$(PARAMETERS.selector);
-
     if (!element) {
       throw new Error("Flight booking component not found");
     }
 
     const screenshotPath = "/tmp/screenshots/flight-booking-component.png";
     await element.screenshot({ path: screenshotPath });
+    testSteps.push({
+      step: "Capture screenshot",
+      success: true,
+      executionTime: performance.now() - step6Start,
+      details: `Screenshot saved to ${screenshotPath}`
+    });
 
-    // Generate unique filename with timestamp
+    // Step 7: Upload to S3
+    const step7Start = performance.now();
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const filename = `${
-      (process.env.PREFIX, "")
-    }-aegean-flight-booking-${timestamp}.png`;
+    const filename = `${process.env.PREFIX || ""}-aegean-flight-booking-${timestamp}.png`;
 
-    // Verify that the file exists before uploading
+    // Verify file exists
     try {
       await fs.access(screenshotPath);
     } catch (error: any) {
-      console.error(`Error accessing screenshot file: ${error.message}`);
       throw new Error(`Screenshot file not found at ${screenshotPath}`);
     }
 
-    // Initialize S3 client
+    // Initialize S3 client and upload
     const s3Client = new S3Client({
       region: process.env.AWS_REGION || "us-east-2",
     });
-    const bucketName =
-      process.env.AWS_S3_BUCKET || "technical-playwright-result";
+    const bucketName = process.env.AWS_S3_BUCKET || "technical-playwright-result";
 
-    // Upload screenshot to S3
     const fileContent = await fs.readFile(screenshotPath);
-
     const params = {
       Bucket: bucketName,
       Key: `screenshots/${filename}`,
@@ -202,13 +253,28 @@ export const handler = async (
     const uploadCommand = new PutObjectCommand(params);
     await s3Client.send(uploadCommand);
 
-    // Generate URL for the uploaded screenshot
     screenshotUrl = `https://${bucketName}.s3.amazonaws.com/screenshots/${filename}`;
+    testSteps.push({
+      step: "Upload to S3",
+      success: true,
+      executionTime: performance.now() - step7Start,
+      details: `Uploaded to ${screenshotUrl}`
+    });
+
   } catch (error: any) {
     console.error("Error:", error);
     console.error("Stack trace:", error.stack);
     statusCode = 500;
     message = `Error: ${error.message}`;
+    errors.push(error.message);
+    
+    // Add failed step
+    testSteps.push({
+      step: "Error occurred",
+      success: false,
+      executionTime: 0,
+      error: error.message
+    });
   } finally {
     // Close browser if it was opened
     if (browser) {
@@ -220,18 +286,29 @@ export const handler = async (
     }
   }
 
-  // Create response with URL of the screenshot if it was successful
+  // Calculate total execution time
+  const totalExecutionTime = performance.now() - startTime;
+
+  // Create comprehensive test result
+  const testResult: TestResult = {
+    success: statusCode === 200 && errors.length === 0,
+    timestamp: new Date().toISOString(),
+    totalExecutionTime,
+    validations: validations || [], // Add validations if they exist
+    steps: testSteps,
+    screenshotUrl: screenshotUrl || undefined,
+    errors,
+    message
+  };
+
+  // Create response
   const response: APIGatewayProxyResult = {
     statusCode,
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      message,
-      timestamp: new Date().toISOString(),
-      screenshotUrl,
-      event,
-    }),
+    body: JSON.stringify(testResult),
   };
+  
   return response;
 };
