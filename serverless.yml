@@ -1,4 +1,4 @@
-service: service-technical-test-martin
+service: ${env:AWS_SERVICE_NAME, ''}
 
 frameworkVersion: '3'
 useDotenv: true
@@ -15,14 +15,17 @@ provider:
   environment:
     AWS_S3_BUCKET: ${env:AWS_S3_BUCKET, ''}
     NODE_ENV: production
+    
+  iam:
+    role: ${env:AWS_ROLE_ARN, ''}
 
 custom:
   stage: ${opt:stage, 'dev'}
 
 functions:
   playwrightTest:
-    image: ${env:AWS_ECR_REPOSITORY_URL, ''}:${env:IMAGE_TAG, 'latest'}
-    name: ${env:AWS_LAMBDA_FUNCTION_NAME, 'playwrightTest'}
+    image: ${env:AWS_ECR_REPOSITORY_URL, ''}:${env:IMAGE_TAG, ''}
+    name: ${env:AWS_LAMBDA_FUNCTION_NAME, ''}
     description: Playwright test for Aegean Air flight booking component
     events:
       - schedule:
@@ -57,4 +60,4 @@ resources:
       Value:
         Ref: PlaywrightTestLambdaFunction
       Export:
-        Name: ${self:service}-${self:provider.stage}-${env:AWS_LAMBDA_FUNCTION_NAME, 'playwrightTest'}
+        Name: ${self:service}-${self:provider.stage}-${env:AWS_LAMBDA_FUNCTION_NAME, ''}
