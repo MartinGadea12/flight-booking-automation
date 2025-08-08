@@ -1,4 +1,5 @@
-service: ${env:AWS_SERVICE_NAME, ''}
+service: service-technical-test-martin
+
 
 frameworkVersion: '3'
 useDotenv: true
