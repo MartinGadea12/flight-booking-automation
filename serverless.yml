@@ -1,8 +1,10 @@
 service: service-technical-test-martin
 
-
 frameworkVersion: '3'
 useDotenv: true
+
+plugins:
+  - serverless-dotenv-plugin
 
 provider:
   name: aws
@@ -14,19 +16,40 @@ provider:
   architecture: x86_64 
   
   environment:
-    AWS_S3_BUCKET: ${env:AWS_S3_BUCKET, ''}
+    AWS_S3_BUCKET: ${env:AWS_S3_BUCKET, 'technical-playwright-result'}
     NODE_ENV: production
     
   iam:
-    role: ${env:AWS_ROLE_ARN, ''}
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: "arn:aws:logs:*:*:*"
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:DeleteObject
+          Resource: 
+            - "arn:aws:s3:::${env:AWS_S3_BUCKET, 'technical-playwright-result'}/*"
+        - Effect: Allow
+          Action:
+            - ecr:GetAuthorizationToken
+            - ecr:BatchCheckLayerAvailability
+            - ecr:GetDownloadUrlForLayer
+            - ecr:BatchGetImage
+          Resource: "*"
 
 custom:
   stage: ${opt:stage, 'dev'}
 
 functions:
   playwrightTest:
-    image: ${env:AWS_ECR_REPOSITORY_URL, ''}:${env:IMAGE_TAG, ''}
-    name: ${env:AWS_LAMBDA_FUNCTION_NAME, ''}
+    image: ${env:AWS_ECR_REPOSITORY_URL, 'service-technical-test-martin'}:${env:IMAGE_TAG, 'latest'}
+    name: ${env:AWS_LAMBDA_FUNCTION_NAME, 'playwright-test'}
     description: Playwright test for Aegean Air flight booking component
     events:
       - schedule:
@@ -61,4 +84,4 @@ resources:
       Value:
         Ref: PlaywrightTestLambdaFunction
       Export:
-        Name: ${self:service}-${self:provider.stage}-${env:AWS_LAMBDA_FUNCTION_NAME, ''}
+        Name: ${self:service}-${self:provider.stage}-${env:AWS_LAMBDA_FUNCTION_NAME, 'playwright-test'}
