@@ -15,9 +15,6 @@ provider:
   environment:
     AWS_S3_BUCKET: ${env:AWS_S3_BUCKET, ''}
     NODE_ENV: production
-    
-  iam:
-    role: ${env:AWS_ROLE_ARN, ''}
 
 custom:
   stage: ${opt:stage, 'dev'}
